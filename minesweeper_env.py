@@ -44,7 +44,6 @@ class Minesweeper_Env:
     def _count_neighbour_mines(self,i,j):
         if self.mine_map[i,j] == 1:
             return -1
-        
         return self.mine_map[max(i-1,0):i+2,max(j-1,0):j+2].sum()
 
     def _generate_info(self):
@@ -74,6 +73,8 @@ class Minesweeper_Env:
 
         self._place_mines()
         if start is not None:
+            if self.mine_map[start] == -1:
+                self.mine_count -= 1
             self.mine_map[start] = 0 
         self._generate_info()
         self.reset()
@@ -153,6 +154,7 @@ class Minesweeper_Env:
         env.reward = self.reward
         env.action_space = self.action_space.copy()
         env.mine_map = self.mine_map.copy()
+        env.mine_count = self.mine_count
         env.mask = self.mask.copy()
         env.info_map = self.info_map.copy()
 
