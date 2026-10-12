@@ -2,9 +2,9 @@ import numpy as np
 
 class Minesweeper_Env:
     '''RL Environment
-    
+
     :mine_map: has the positions of the mines
-    :mask: has the revealed entries  
+    :mask: has the revealed entries
     :info_map: has the informations of the map
     :observation: current observation,
       entries with mines => -1
@@ -14,7 +14,7 @@ class Minesweeper_Env:
         if mine_ratio > 1 or mine_ratio < 0:
             raise ValueError("mine ratio should be within 0 and 1")
         self.row = row
-        self.column = column 
+        self.column = column
         self.n = row * column
         self.mine_ratio = mine_ratio
         self.mine_count = (int)(self.n * mine_ratio)
@@ -25,7 +25,7 @@ class Minesweeper_Env:
         self.info_map  = np.zeros((row,column),dtype=int)
 
         self._action_space = [(i,j) for j in range(self.column) for i in range(self.row)]
-        self.action_space = {a:1 for a in self._action_space}   
+        self.action_space = {a:1 for a in self._action_space}
         self.observation = self.mask - 2
         self.reward = 0
         self.terminated = False
@@ -44,6 +44,7 @@ class Minesweeper_Env:
     def _count_neighbour_mines(self,i,j):
         if self.mine_map[i,j] == 1:
             return -1
+
         return self.mine_map[max(i-1,0):i+2,max(j-1,0):j+2].sum()
 
     def _generate_info(self):
@@ -55,7 +56,7 @@ class Minesweeper_Env:
         self.np_random = np.random.default_rng(self.random_seed)
         self.mask = np.zeros((self.row,self.column),dtype=int)
         self.observation = self.mask - 2
-        self.action_space = {a:1 for a in self._action_space}   
+        self.action_space = {a:1 for a in self._action_space}
         self.reward = 0
         self.terminated = False
 
@@ -73,9 +74,7 @@ class Minesweeper_Env:
 
         self._place_mines()
         if start is not None:
-            if self.mine_map[start] == -1:
-                self.mine_count -= 1
-            self.mine_map[start] = 0 
+            self.mine_map[start] = 0
         self._generate_info()
         self.reset()
 
@@ -94,8 +93,8 @@ class Minesweeper_Env:
             return
 
         if self.mask[action]:
-            reward = -5 
-            return reward 
+            reward = -5
+            return reward
 
         self.observation[action] = self.info_map[action]
         self.mask[action] = 1
@@ -111,22 +110,22 @@ class Minesweeper_Env:
             i = action[0]
             j = action[1]
             reward = 1
-            self.toggle(i - 1,j)
-            self.toggle(i + 1,j)
-            self.toggle(i,j - 1)
-            self.toggle(i,j + 1)
-            self.toggle(i - 1,j - 1)
-            self.toggle(i - 1,j + 1)
-            self.toggle(i + 1,j - 1)
-            self.toggle(i + 1,j + 1)
+            self.toggle((i - 1,j))
+            self.toggle((i + 1,j))
+            self.toggle((i,j - 1))
+            self.toggle((i,j + 1))
+            self.toggle((i - 1,j - 1))
+            self.toggle((i - 1,j + 1))
+            self.toggle((i + 1,j - 1))
+            self.toggle((i + 1,j + 1))
 
         return reward
-        
+
     def step(self,action:tuple):
         '''Toggle an entry. \n
         Do not trigger mine => reward = 1 \n
         Trigger mine => reward = -1 \n
-        Invalid operation => reward = -5 
+        Invalid operation => reward = -5
         Entry has already been toggled => reward = -5
 
         :param action: The entry to be toggled
@@ -139,7 +138,7 @@ class Minesweeper_Env:
         if action[0] >= self.row or action[0] < 0 or action[1] >= self.column or action[1] < 0:
             self.reward = -5
             return self.observation, self.reward, self.terminated, self.info_map
-        
+
         self.reward = self.toggle(action)
         return self.get_status()
 
@@ -154,7 +153,6 @@ class Minesweeper_Env:
         env.reward = self.reward
         env.action_space = self.action_space.copy()
         env.mine_map = self.mine_map.copy()
-        env.mine_count = self.mine_count
         env.mask = self.mask.copy()
         env.info_map = self.info_map.copy()
 
@@ -162,9 +160,9 @@ class Minesweeper_Env:
 
     def render(self,reveal_all=False):
         sym = {
-            -2: '■',  
-            -1: '✱ ', 
-            0: '  ',  
+            -2: '■',
+            -1: '✱ ',
+            0: '  ',
             1: '1 ',
             2: '2 ',
             3: '3 ',
@@ -176,7 +174,7 @@ class Minesweeper_Env:
         }
         for i in range(self.row):
             if(not reveal_all):
-                print(''.join(sym[int(self.info_map[i, j])] if self.mask[i, j] 
+                print(''.join(sym[int(self.info_map[i, j])] if self.mask[i, j]
                         else '■' for j in range(self.column)))
             else:
                 print(''.join(sym[int(self.info_map[i, j])] for j in range(self.column)))
