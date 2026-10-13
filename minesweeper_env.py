@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 class Minesweeper_Env:
     '''RL Environment
@@ -10,7 +11,7 @@ class Minesweeper_Env:
       entries with mines => -1
       entries unknown => -2
     '''
-    def __init__(self,row,column,mine_ratio,random_seed = 42):
+    def __init__(self,row:int,column:int,mine_ratio:float,random_seed:int = 42):
         if mine_ratio > 1 or mine_ratio < 0:
             raise ValueError("mine ratio should be within 0 and 1")
         self.row = row
@@ -21,7 +22,7 @@ class Minesweeper_Env:
         self._set_random(random_seed)
 
         self.mine_map = np.zeros((row,column),dtype=int)
-        self.mask = np.zeros((row,column),dtype=int)
+        self.mask = torch.zeros((row,column),dtype=torch.long,requires_grad=False)
         self.info_map  = np.zeros((row,column),dtype=int)
 
         self._action_space = [(i,j) for j in range(self.column) for i in range(self.row)]
@@ -54,13 +55,13 @@ class Minesweeper_Env:
         '''Reset to the begining without generating a new environment.
         '''
         self.np_random = np.random.default_rng(self.random_seed)
-        self.mask = np.zeros((self.row,self.column),dtype=int)
+        self.mask = torch.zeros((self.row,self.column),dtype=torch.long)
         self.observation = self.mask - 2
         self.action_space = {a:1 for a in self._action_space}
         self.reward = 0
         self.terminated = False
 
-    def make(self,start:tuple=None,random_seed=None):
+    def make(self,start:tuple=None,random_seed:int=None):
         '''Generate a new environment。Pass an index tuple to ensure that your first step is safe.
 
         :param start: The starting position and no mine is guarentee.
@@ -76,7 +77,6 @@ class Minesweeper_Env:
         if start is not None:
             self.mine_map[start] = 0
         self._generate_info()
-        self.reset()
 
         return self.observation
 
@@ -88,12 +88,12 @@ class Minesweeper_Env:
 
         return self.observation,self.mine_count, self.reward, self.terminated, self.info_map
 
-    def toggle(self,action):
+    def toggle(self,action:tuple):
         if action[0] < 0 or action[0] >= self.row or action[1] < 0 or action[1] >= self.column:
             return
 
         if self.mask[action]:
-            reward = -5
+            reward = -1
             return reward
 
         self.observation[action] = self.info_map[action]
@@ -101,7 +101,7 @@ class Minesweeper_Env:
         self.terminated = True if np.array_equal((1 - self.mask),self.mine_map) or self.terminated else False
         self.action_space.pop(action,None)
 
-        reward = 5
+        reward = 1
         if self.info_map[action] == -1:
             self.terminated = True
             reward = -1
@@ -136,7 +136,7 @@ class Minesweeper_Env:
 
         #If the action is invalid we should penalize the model heavily
         if action[0] >= self.row or action[0] < 0 or action[1] >= self.column or action[1] < 0:
-            self.reward = -5
+            self.reward = -1
             return self.observation, self.reward, self.terminated, self.info_map
 
         self.reward = self.toggle(action)
@@ -148,7 +148,7 @@ class Minesweeper_Env:
 
     def clone(self):
         env = Minesweeper_Env(self.row,self.column,self.mine_ratio,self.random_seed)
-        env.observation = self.observation.copy()
+        env.observation = self.observation.clone()
         env.terminated = self.terminated
         env.reward = self.reward
         env.action_space = self.action_space.copy()
@@ -158,7 +158,7 @@ class Minesweeper_Env:
 
         return env
 
-    def render(self,reveal_all=False):
+    def render(self,reveal_all:bool=False):
         sym = {
             -2: '■',
             -1: '* ',

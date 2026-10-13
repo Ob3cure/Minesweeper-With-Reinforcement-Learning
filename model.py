@@ -7,7 +7,7 @@ ROW = 16
 COLUMN = 30
 EMBED_DIM = 128
 WINDOW_SHAPE = (4,6)
-STATE_SPACE_SIZE = 10
+STATE_SPACE_SIZE = 11
 '''
 Modified Swin Transformer   (https://arxiv.org/pdf/2103.14030)
 Input of the map should be in shape (16,30)
@@ -177,7 +177,7 @@ class SW_MSA(W_MSA):
         self.shift_row = wr // 2
         self.shift_column = wc // 2
 
-        self.rolled_mask = torch.tensor([[True if i == 0 or j == 0 else False for j in range(self.c // wc)] for i in range(self.r // wr)]).reshape(-1,1,1,1)
+        self.register_buffer("rolled_mask",torch.tensor([[True if i == 0 or j == 0 else False for j in range(self.c // wc)] for i in range(self.r // wr)]).reshape(-1,1,1,1))
 
     def _roll(self,X):
         n, r, c, d = X.shape
@@ -234,6 +234,8 @@ class Shifted_Window_Attn_ViT(nn.Module):
         self.block2 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)    
         self.block3 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)
         self.block4 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)
+        self.block5 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)
+        self.block6 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)        
 
         self.embedding = nn.Embedding(STATE_SPACE_SIZE,embed_dim)
         self.output = nn.Sequential(
@@ -248,7 +250,9 @@ class Shifted_Window_Attn_ViT(nn.Module):
         X_embed = self.embedding(X)
         X1 = self.block1(X_embed)
         X2 = self.block2(X1)
-        X3 = self.block2(X2)
-        X4 = self.block2(X3)
+        X3 = self.block3(X2)
+        X4 = self.block4(X3)
+        X5 = self.block5(X4)
+        X6 = self.block6(X5)
 
-        return self.output(X4)
+        return self.output(X6)
