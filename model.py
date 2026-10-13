@@ -6,12 +6,17 @@ import torch.nn.functional as F
 ROW = 16
 COLUMN = 30
 EMBED_DIM = 128
-WINDOW_SHAPE = (9,9)
+WINDOW_SHAPE = (4,6)
 STATE_SPACE_SIZE = 10
 '''
 Modified Swin Transformer   (https://arxiv.org/pdf/2103.14030)
 Input of the map should be in shape (16,30)
 Which means in general the input tensor has shape (N, 16, 30, EMBED_DIM) = (N, 16, 30, 128)
+
+Remarks:
+10-13: I have implemented the masking of swmsa but it is not optimzed. I think we can try to ignore the softmax calculation for the masked windows.
+10-13: There is also one flaw has to be fixed. The masking in the MHA_for_SWMSA module does not work for case n != 1. This can be fixed using reshape.
+        But the problem is that calling reshape will need extra computation. And I suppose n will not be larger than 1 during training.
 '''
 class Multihead_Attention(nn.Module):
     '''Classical multihead attention \n
@@ -35,7 +40,6 @@ class Multihead_Attention(nn.Module):
     def forward(self,X:torch.Tensor,mask:torch.tensor=None,relative_position_bias:torch.Tensor = None):
         n,l,embed = X.shape
 
-        X = X.masked_fill(mask,-torch.inf)
         #Q, K, V in shape (n,h,l,d)
         Q = self.split(self.Q(X))
         K = self.split(self.K(X))
@@ -54,6 +58,34 @@ class Multihead_Attention(nn.Module):
 
         return z.transpose(-2,-3).reshape(n,l,embed)
 
+class MHA_for_SWMSA(Multihead_Attention):
+    def __init__(self, embed_dim, num_head = 4):
+        super().__init__(embed_dim, num_head)
+
+    def forward(self,X:torch.Tensor,mask:torch.tensor=None,relative_position_bias:torch.Tensor = None):
+        '''mask in shape (n * num_window) \n
+        For the incomplete windows(windows with elements have to be masked), we discard the calculation of the softmax output.
+        '''
+        n,l,embed = X.shape
+
+        #Q, K, V in shape (n,h,l,d)
+        Q = self.split(self.Q(X))
+        K = self.split(self.K(X))
+        V = self.split(self.V(X))
+        d = Q.shape[-1]
+
+        attn_score = Q @ K.transpose(-1,-2)
+        if relative_position_bias is None:
+            z = F.softmax(attn_score / d ** 0.5,dim=-1) @ V    
+        else:
+            z = F.softmax(attn_score / d ** 0.5 + relative_position_bias,dim=-1) @ V    
+
+        if mask is not None:
+            #z in shape (n * num_window, window_size, embed_dim)
+            #mask in shape (n * num_window, 1, 1)
+            z = z.masked_fill(mask,0)
+            
+        return z.transpose(-2,-3).reshape(n,l,embed)
 
 class Relative_Position_Bias(nn.Module):
     def __init__(self,row:int,column:int,num_head:int):
@@ -82,13 +114,13 @@ class Relative_Position_Bias(nn.Module):
     def construct_by_index(self,M:torch.Tensor):
         return self.B_head[:,M[:,:,0],M[:,:,1]]
 
-class W_MSA(Multihead_Attention):
+class W_MSA(MHA_for_SWMSA):
     '''window-based multi-head self-attention \n
     Input should be in shape (n,r,c,embed_dim)
 
     :param window_size: The size of the window
     '''
-    def __init__(self,embed_dim:int=EMBED_DIM,num_head:int=4,input_row:int=ROW,input_column:int=COLUMN,window_shape:tuple=WINDOW_SIZE):
+    def __init__(self,embed_dim:int=EMBED_DIM,num_head:int=4,input_row:int=ROW,input_column:int=COLUMN,window_shape:tuple=WINDOW_SHAPE):
         super().__init__(embed_dim=embed_dim,num_head=num_head)
         if input_row  % window_shape[0] != 0 or input_column % window_shape[1] != 0:
             raise ValueError("Input shape is not divisible by window shape")
@@ -135,16 +167,17 @@ class W_MSA(Multihead_Attention):
         n, num_windows, ws, d = X_win.shape
 
         X_flat = X_win.reshape(n * num_windows, ws, d)
-
         out = super().forward(X_flat,mask,self.rpb.construct_by_index(self.B_index)).reshape(n, num_windows, ws, d)                
-
         return self._inverse_window_split(out)
 
 class SW_MSA(W_MSA):
-    def __init__(self, embed_dim:int = EMBED_DIM, num_head:int = 4, input_row:int = ROW, input_column:int = COLUMN, window_shape:tuple = WINDOW_SIZE):
+    def __init__(self, embed_dim:int = EMBED_DIM, num_head:int = 4, input_row:int = ROW, input_column:int = COLUMN, window_shape:tuple = WINDOW_SHAPE):
         super().__init__(embed_dim, num_head, input_row, input_column, window_shape)
         wr,wc = window_shape
-        self.rolled_mask = torch.Tensor([[1 if wc == 0 or wr == 0 else 0 for j in range(wc)] for i in range(wr)])
+        self.shift_row = wr // 2
+        self.shift_column = wc // 2
+
+        self.rolled_mask = torch.tensor([[True if i == 0 or j == 0 else False for j in range(self.c // wc)] for i in range(self.r // wr)]).reshape(-1,1,1,1)
 
     def _roll(self,X):
         n, r, c, d = X.shape
@@ -177,7 +210,7 @@ class Swin_Transformer_Blcok(nn.Module):
             nn.SiLU(),
             nn.Linear(embed_dim,embed_dim)
         )
-        self.mlp1 = nn.Sequential(
+        self.mlp2 = nn.Sequential(
             nn.Linear(embed_dim,embed_dim),
             nn.SiLU(),
             nn.Linear(embed_dim,embed_dim)
@@ -195,7 +228,8 @@ class Swin_Transformer_Blcok(nn.Module):
         return X4
 
 class Shifted_Window_Attn_ViT(nn.Module):
-    def __init__(self,input_row:int=ROW,input_column:int=COLUMN,window_shape=WINDOW_SHAPE,embed_dim:int=EMBED_DIM,dropout_prob:float=0.5,attn_num_head:int=4):
+    def __init__(self,input_row:int=ROW,input_column:int=COLUMN,window_shape:tuple=WINDOW_SHAPE,embed_dim:int=EMBED_DIM,dropout_prob:float=0.5,attn_num_head:int=4):
+        super().__init__()
         self.block1 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)
         self.block2 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)    
         self.block3 = Swin_Transformer_Blcok(input_row,input_column,window_shape,embed_dim,dropout_prob,attn_num_head)

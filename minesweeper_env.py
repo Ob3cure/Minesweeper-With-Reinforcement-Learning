@@ -101,7 +101,7 @@ class Minesweeper_Env:
         self.terminated = True if np.array_equal((1 - self.mask),self.mine_map) or self.terminated else False
         self.action_space.pop(action,None)
 
-        reward = 0
+        reward = 5
         if self.info_map[action] == -1:
             self.terminated = True
             reward = -1
@@ -130,8 +130,8 @@ class Minesweeper_Env:
 
         :param action: The entry to be toggled
         :type action: tuple
-        :return: observation, reward, terminated, mine_info
-        :rtype: np.ndarray, float, bool, np.ndarray
+        :return: observation, mine_count, reward, terminated, mine_info
+        :rtype: np.ndarray, int, float, bool, np.ndarray
         '''
 
         #If the action is invalid we should penalize the model heavily
@@ -144,7 +144,7 @@ class Minesweeper_Env:
 
     def sample_action(self):
         action_space = list(self.action_space.keys())
-        return action_space[self.np_random.choice(len(action_space),1,replace=False)]
+        return action_space[self.np_random.choice(len(action_space),1,replace=False)[0]]
 
     def clone(self):
         env = Minesweeper_Env(self.row,self.column,self.mine_ratio,self.random_seed)
@@ -161,7 +161,7 @@ class Minesweeper_Env:
     def render(self,reveal_all=False):
         sym = {
             -2: '■',
-            -1: '✱ ',
+            -1: '* ',
             0: '  ',
             1: '1 ',
             2: '2 ',
